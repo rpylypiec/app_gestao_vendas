@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 
-API_URL = "http://localhost:8000"
+API_URL = "http://host.docker.internal:8000"
 
 st.set_page_config(page_title="Marketplace Data Analytics", layout="wide", initial_sidebar_state="expanded")
 st.title("📈 Sistema Integrado de Gestão - Marketplace")
