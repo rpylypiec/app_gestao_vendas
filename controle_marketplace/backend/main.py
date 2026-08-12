@@ -159,6 +159,16 @@ def listar_produtos():
     conn.close()
     return list(produtos)
 
+@app.get("/vendas")
+def listar_vendas():
+    conn = get_db_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT id, produto_id, quantidade, valor_venda_total, data_venda, canal_venda, cliente FROM vendas ORDER BY data_venda ASC;")
+    vendas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return list(vendas)
+
 # ---- PIPELINE ANALÍTICO (DATA ENGINE ROOM) ----
 
 @app.get("/analytics")

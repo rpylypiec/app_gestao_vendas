@@ -78,6 +78,10 @@ def injetar_dados():
     df_excel_compras = pd.read_excel(EXCEL_PATH, sheet_name="Compras")
     df_excel_vendas = pd.read_excel(EXCEL_PATH, sheet_name="Vendas")
     
+    # 🔥 DATA CLEANING: Remove linhas completamente vazias ou que tenham o Produto/Quantidade nulos
+    df_excel_compras = df_excel_compras.dropna(subset=['Produto', 'Quantidade', 'Custo Total'])
+    df_excel_vendas = df_excel_vendas.dropna(subset=['Produto', 'Quantidade', 'Receita Total'])
+    
     # 1. Carga da Dimensão Produtos (Evitando duplicatas)
     print("🚀 Injetando Produtos...")
     produtos_unicos = df_excel_compras[['Produto', 'Categoria']].drop_duplicates(subset=['Produto'])
