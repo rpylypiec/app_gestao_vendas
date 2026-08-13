@@ -2,8 +2,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# 🔥 ADICIONADO O PLOTLY AQUI
-RUN pip install --no-cache-dir streamlit requests plotly
+# 🔥 Adicionado plotly e pandas (usado no app.py para montar os DataFrames)
+RUN pip install --no-cache-dir streamlit requests plotly pandas
 
 # Copia o código do front-end para o container
 COPY app.py .
