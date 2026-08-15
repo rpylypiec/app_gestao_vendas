@@ -78,9 +78,12 @@ class Produto(BaseModel):
     categoria: str = None
 
 class Compra(BaseModel):
-    produto_id: int
+    produto_id: int | None = None
+    nome: str | None = None
+    categoria: str | None = None
     quantidade: int
-    custo_total: float
+    valor_custo: float  # custo unitário vindo do formulário
+    data_compra: str | None = None  # formato "AAAA-MM-DD"; se ausente, usa a data de hoje
 
 class Venda(BaseModel):
     produto_id: int
@@ -88,6 +91,7 @@ class Venda(BaseModel):
     valor_venda_total: float
     canal_venda: str = "Facebook Marketplace"
     cliente: str = None
+    data: str = None  # formato "AAAA-MM-DD"; se ausente, usa a data de hoje
 
 # ---- ROTAS OPERACIONAIS DE CADASTRO ----
 
@@ -113,20 +117,57 @@ def cadastrar_produto(prod: Produto):
 def registrar_compra(compra: Compra):
     conn = get_db_connection()
     cursor = conn.cursor()
+ 
+    produto_id = compra.produto_id
+ 
+    # Se não veio produto_id, resolve pelo nome: reaproveita o produto se já existir, ou cria um novo
+    if produto_id is None:
+        if not compra.nome or not compra.nome.strip():
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Informe 'produto_id' ou 'nome' do produto.")
+ 
+        nome_produto = compra.nome.strip()
+        cursor.execute("SELECT id FROM produtos WHERE nome = %s;", (nome_produto,))
+        resultado = cursor.fetchone()
+ 
+        if resultado:
+            produto_id = resultado[0]
+        else:
+            cursor.execute(
+                "INSERT INTO produtos (nome, categoria) VALUES (%s, %s) RETURNING id;",
+                (nome_produto, compra.categoria or "Outros")
+            )
+            produto_id = cursor.fetchone()[0]
+ 
+    # Custo total = custo unitário * quantidade
+    custo_total = compra.valor_custo * compra.quantidade
+ 
+    # Data da compra: usa a informada no formulário, ou hoje se não vier
+    if compra.data_compra:
+        try:
+            data_c = datetime.strptime(compra.data_compra, "%Y-%m-%d").date()
+        except ValueError:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Campo 'data_compra' deve estar no formato AAAA-MM-DD.")
+    else:
+        data_c = datetime.now().date()
+ 
     cursor.execute(
         "INSERT INTO compras (produto_id, quantidade, custo_total, data_compra) VALUES (%s, %s, %s, %s);",
-        (compra.produto_id, compra.quantidade, compra.custo_total, datetime.now().date())
+        (produto_id, compra.quantidade, custo_total, data_c)
     )
     conn.commit()
     cursor.close()
     conn.close()
-    return {"status": "Entrada de estoque registrada"}
+    return {"status": "Entrada de estoque registrada", "produto_id": produto_id, "data_compra": str(data_c)}
 
 @app.post("/vendas")
 def registrar_venda(venda: Venda):
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+ 
     # Trava atômica de validação de estoque
     cursor.execute('''
         SELECT 
@@ -139,15 +180,26 @@ def registrar_venda(venda: Venda):
         cursor.close()
         conn.close()
         raise HTTPException(status_code=400, detail=f"Estoque insuficiente. Disponível localmente: {estoque_atual} un")
-
+ 
+    # Usa a data enviada pelo formulário; se não vier, usa hoje
+    if venda.data:
+        try:
+            data_v = datetime.strptime(venda.data, "%Y-%m-%d").date()
+        except ValueError:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Campo 'data' deve estar no formato AAAA-MM-DD.")
+    else:
+        data_v = datetime.now().date()
+ 
     cursor.execute(
         "INSERT INTO vendas (produto_id, quantidade, valor_venda_total, canal_venda, cliente, data_venda) VALUES (%s, %s, %s, %s, %s, %s);",
-        (venda.produto_id, venda.quantidade, venda.valor_venda_total, venda.canal_venda, venda.cliente, datetime.now().date())
+        (venda.produto_id, venda.quantidade, venda.valor_venda_total, venda.canal_venda, venda.cliente, data_v)
     )
     conn.commit()
     cursor.close()
     conn.close()
-    return {"status": "Venda registrada com sucesso"}
+    return {"status": "Venda registrada com sucesso", "data_venda": str(data_v)}
 
 @app.get("/produtos")
 def listar_produtos():

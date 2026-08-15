@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: marketplace-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # Sobrescreve o DB_HOST do .env: o Postgres continua no seu Mac (Postgres.app),
+      # o backend containerizado alcança ele via host.docker.internal.
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    container_name: front-container
+    restart: unless-stopped
+    environment:
+      # Agora o frontend fala com o backend pelo nome do serviço,
+      # dentro da rede interna do compose — sem depender de host.docker.internal.
+      API_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "8501:8501"

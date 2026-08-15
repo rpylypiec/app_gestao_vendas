@@ -1,9 +1,10 @@
+import os
 import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
 
-API_URL = "http://host.docker.internal:8000"
+API_URL = os.getenv("API_URL", "http://host.docker.internal:8000")
 
 st.set_page_config(page_title="Dashboard Marketplace", layout="wide")
 
@@ -316,7 +317,8 @@ elif aba == "Cadastrar Compra":
         nome_produto = st.text_input("Nome do Produto *")
         valor_custo = st.number_input("Valor de Custo Unitário (R$) *", min_value=0.0, step=0.01, format="%.2f")
         quantidade = st.number_input("Quantidade Adquirida *", min_value=1, step=1)
-        
+        data_compra = st.date_input("Data da Compra *")
+
         botao_submeter = st.form_submit_button("Registrar Entrada no Estoque")
 
         if botao_submeter:
@@ -328,16 +330,16 @@ elif aba == "Cadastrar Compra":
                 payload = {
                     "nome": nome_produto.strip(),
                     "valor_custo": valor_custo,
-                    "quantidade": quantidade
+                    "quantidade": quantidade,
+                    "data_compra": str(data_compra)
                 }
                 try:
-                    # Tenta ler a variável global API_URL configurada no seu app, se não existir usa o fallback padrão do Docker
-                    url_compra = f"{API_URL}/compras" if 'API_URL' in locals() else "http://host.docker.internal:8000/compras"
-                    response = requests.post(url_compra, json=payload)
-                    
+                    url_compra = f"{API_URL}/compras"
+                    response = requests.post(url_compra, json=payload, timeout=10)
+
                     if response.status_code in [200, 201]:
                         st.success(f"Sucesso! Produto '{nome_produto}' registrado com {quantidade} unidades.")
-                        st.rerun() # Atualiza a tela para retroalimentar o analítico imediatamente
+                        st.rerun()  # Atualiza a tela para retroalimentar o analítico imediatamente
                     else:
                         st.error(f"Erro retornado pelo servidor: {response.text}")
                 except Exception as e:
@@ -350,13 +352,25 @@ elif aba == "Cadastrar Venda":
     st.title("💰 Registrar Nova Venda")
     st.write("Selecione o produto e preencha os dados da transação para salvar no banco de dados.")
 
-    # 1. MAPEAMENTO: Criamos um dicionário vinculando o Nome exato da tabela 'produtos' ao seu ID
+    # 1. MAPEAMENTO SEGURO
     mapeamento_produtos_id = {}
-    if data_analytics and "produtos_detalhe" in data_analytics:
+    
+    try:
+        url_listar_produtos = f"{API_URL}/produtos" if 'API_URL' in locals() else "http://host.docker.internal:8000/produtos"
+        response_produtos = requests.get(url_listar_produtos, timeout=3)
+        
+        if response_produtos.status_code == 200:
+            produtos_banco = response_produtos.json()
+            for p in produtos_banco:
+                if "nome" in p and "id" in p:
+                    mapeamento_produtos_id[str(p["nome"]).strip()] = p["id"]
+    except Exception:
+        pass
+
+    if not mapeamento_produtos_id and data_analytics and "produtos_detalhe" in data_analytics:
         for p in data_analytics["produtos_detalhe"]:
             nome = p.get("nome") or p.get("Nome do produto")
             id_prod = p.get("id")
-            
             if nome and id_prod is not None:
                 mapeamento_produtos_id[str(nome).strip()] = id_prod
 
@@ -364,19 +378,18 @@ elif aba == "Cadastrar Venda":
 
     with st.form("form_cadastro_venda", clear_on_submit=True):
         if lista_produtos:
-            # Exibe a lista nominal vinda do banco, mas a seleção guardará o texto para buscarmos o ID
             produto_selecionado = st.selectbox("Selecione o Produto Vendido *", options=lista_produtos)
         else:
-            st.error("Erro: Não há produtos carregados do banco de dados para realizar uma venda.")
+            st.error("Erro: Não foi possível carregar a lista de produtos do banco de dados.")
             produto_selecionado = None
             
-        # Novos campos solicitados para a tabela vendas
         cliente = st.text_input("Nome do Cliente *")
         canal_venda = st.selectbox("Canal de Venda *", options=["Mercado Livre", "Shopee", "Site Próprio", "Amazon", "Geral"])
         
-        # Campos financeiros e quantitativos
         valor_venda_unitario = st.number_input("Preço de Venda Unitário (R$) *", min_value=0.0, step=0.01, format="%.2f")
         quantidade_vendida = st.number_input("Quantidade Vendida *", min_value=1, step=1)
+        
+        # Calendário
         data_venda = st.date_input("Data da Venda *")
 
         botao_venda = st.form_submit_button("Registrar Venda no Banco")
@@ -389,14 +402,16 @@ elif aba == "Cadastrar Venda":
             elif valor_venda_unitario <= 0:
                 st.error("O preço unitário deve ser maior que zero.")
             else:
-                # 2. RESGATE POR DEBAIXO DOS PANOS: Localiza o ID correspondente ao Nome selecionado
                 produto_id = mapeamento_produtos_id.get(str(produto_selecionado).strip())
                 
                 if produto_id is None:
                     st.error("Falha interna ao recuperar o ID numérico deste produto.")
                 else:
-                    # 3. CÁLCULO E MONTAGEM DO SCHEMA EXATO DO SERVIDOR
                     valor_venda_total = valor_venda_unitario * quantidade_vendida
+
+                    # --- CORREÇÃO DO FUSO HORÁRIO / DATA EXATA ---
+                    # Forçamos a conversão para string no formato YYYY-MM-DD puro sem carimbos de hora/UTC
+                    data_formatada = data_venda.strftime("%Y-%m-%d")
 
                     payload_venda = {
                         "produto_id": int(produto_id),
@@ -404,7 +419,7 @@ elif aba == "Cadastrar Venda":
                         "canal_venda": canal_venda,
                         "quantidade": int(quantidade_vendida),
                         "valor_venda_total": float(valor_venda_total),
-                        "data": str(data_venda)
+                        "data": data_formatada
                     }
                     
                     try:
@@ -412,7 +427,7 @@ elif aba == "Cadastrar Venda":
                         response = requests.post(url_venda, json=payload_venda)
                         
                         if response.status_code in [200, 201]:
-                            st.success(f"Venda para '{cliente}' registrada com sucesso! Atualizando sistema...")
+                            st.success(f"Venda para '{cliente}' registrada com sucesso no dia {data_venda.strftime('%d/%m/%Y')}!")
                             st.rerun()
                         else:
                             st.error(f"Erro de validação no Schema do Servidor: {response.text}")
